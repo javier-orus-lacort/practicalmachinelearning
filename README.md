@@ -1,5 +1,5 @@
-# Practical Machine Learning - Project Repository
+## Repository Files Submitted for the PML Project
 
-The R Markdown file is:  index.rmd
+The R Markdown file is:  "index.rmd"
 
-The HTML file is:        index.html
+The HTML file is:        "index.html"
