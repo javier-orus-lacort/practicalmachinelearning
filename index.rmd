@@ -1,22 +1,173 @@
 ---
-title: "PML_PROJECT"
-author: "JAVIER ORUS LACORT"
-date: "Saturday, December 26, 2015"
+title: "Practical Machine Learning Project"
+author: "Javier Orús Lacort"
 output: html_document
 ---
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+## Background
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, the goal is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
 
-```{r}
-summary(cars)
+## Goal
+
+The goal of this Project is to predict the manner in which they did the exercise. This is the *classe* variable in the Training set. We may use any of the other variables to predict with. We should describe how we build our model, how we use Cross Validation, what we think the expected Out of Sample error is, and why we make the choices we do. We will also use our prediction model to predict 20 different Test cases.
+
+## Getting and Cleaning Data
+
+First of all, we download the Training and Test files from the URL, checking whether they already exist in the work folder on not:
+
+```{r, message = F, warning = F}
+library(caret)
+
+trnURL  <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+trnFile  <- "./pml-training.csv"
+testFile <- "./pml-testing.csv"
+
+if (!file.exists(trnFile) | !file.exists(testFile)) {
+        download.file(trnURL,  destfile = trnFile)
+        download.file(testURL, destfile = testFile)
+}
+
+trnRead  <- read.csv("pml-training.csv")
+testRead <- read.csv("pml-testing.csv")
 ```
 
-You can also embed plots, for example:
+Then we prepare Training data accordingly. We separate the Outcome *classe* from the rest of Training features:
 
-```{r, echo=FALSE}
-plot(cars)
+```{r, message = F, warning = F}
+trn        <- trnRead[,-160]
+trnOutcome <- trnRead[,160]
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+Checking the Training data, we can see that there are many columns where we have *NA* or *missing* values. For instance, selecting some columns to show it briefly, we can see:
+
+```{r, warning = F}
+head(trn[,c(15:18)])
+```
+
+Then, using the *Near Zero Variance* function and identifying the columns with *NA*, we remove the columns with near zero variance, with missing values or with *NA*:
+
+```{r, message = F, warning = F, cache=T}
+nzvCol <- nearZeroVar(trn)
+trnNotNzv  <- trn[,-nzvCol]
+
+naCol <- apply(trnNotNzv, 2, function(x) sum(is.na(x)) > 0) 
+trnNotNzvNa  <- trnNotNzv[,!naCol]
+```
+
+Moreover, we remove the first 5 columns from the Traning set (index, name and timestamps) as they are not relevant for prediction purposes within this Project. Then we finally get a Training set with 19622 samples and 53 predictors:
+
+```{r, message = F, warning = F}
+trnFinal  <- trnNotNzvNa[,-c(1:5)]
+dim(trnFinal)
+```
+
+On the other hand, we are going to clean the Test set selecting the same columns that we have selected for the Training set and removing the last one with the *problem_id* values, getting 20 samples and 53 columns:
+
+```{r, message = F, warning = F}
+test <- testRead[,-160]
+testNotNzv <- test[,-nzvCol]
+testNotNzvNa <- testNotNzv[,!naCol]
+testFinal <- testNotNzvNa[,-c(1:5)]
+dim(testFinal)
+```
+
+## Training the Models with Cross-Validation
+
+We are going to use the *Caret Package* to train several Models, dealing with Cross Validation resampling for estimating the Out of Sample Error. Moreover, we will predict the required 20 cases that we have in the Test set with the final selected model.
+
+First of all, we are going to use 10-Fold Cross Validation with Random Forests *rf*, and Boosting with Trees *gbm*. This will help us to decide which of these two Models is more accurate for this prediction Project.
+
+Once we decide which Model to use, *rf* or *gbm*, we will estimate the Out of Sample error by using 100-Fold Cross Validation with that one, in order to be as much realistic as possible. We proceed like that because the number of samples in the Training set is very big, hence it is better to use as much resampling as possible to get that estimate.
+
+### Random Forests Model with 10-Fold Cross Validation, checking the Variable Importance too:
+
+```{r, message = F, warning = F, cache=T}
+set.seed(1234)
+library(parallel)
+library(doParallel)
+
+cluster <- makeCluster(detectCores() - 1)
+cluster
+
+registerDoParallel(cluster)
+
+cvControl <- trainControl(method = "cv", number = 10)
+system.time(modFit_RF_cv_10 <- train(trnFinal,trnOutcome,method="rf", trControl = cvControl))
+
+stopCluster(cluster)
+
+modFit_RF_cv_10
+modFit_RF_cv_10$finalModel
+
+varImp(modFit_RF_cv_10)
+
+confusionMatrix(trnOutcome,predict(modFit_RF_cv_10,trnFinal))
+```
+
+### Boosting with Trees Model with 10-Fold Cross Validation:
+
+```{r, message = F, warning = F, cache=T}
+set.seed(1234)
+library(parallel)
+library(doParallel)
+
+cluster <- makeCluster(detectCores() - 1)
+cluster
+
+registerDoParallel(cluster)
+
+cvControl <- trainControl(method = "cv", number = 10)
+system.time(modFit_GBM_cv_10 <- train(trnFinal,trnOutcome,method="gbm", trControl = cvControl, verbose=F))
+
+stopCluster(cluster)
+
+modFit_GBM_cv_10
+modFit_GBM_cv_10$finalModel
+
+confusionMatrix(trnOutcome,predict(modFit_GBM_cv_10,trnFinal))
+```
+
+
+As we can see, Random Forests is more accurate than Boosting with Trees, just by checking the Accuracy in the resampling results across the tuning parameters selected for the final model in each case: 0.9984202 against 0.9882272; but also checking the Accuracy in the whole Training set: 1 against 0.993. 
+
+Then, our selected Model will be Random Forests.
+
+We are going to train Random Forests now with 100-Fold Cross Validation to get our final Random Forests Model, to get the prediction of the Test cases, and to get a more realistic estimate of the Out of Sample Error.
+
+### Random Forests Model with 100-Fold Cross Validation, checking the Variable Importance too:
+
+```{r, message = F, warning = F, cache=T}
+set.seed(1234)
+library(parallel)
+library(doParallel)
+
+cluster <- makeCluster(detectCores() - 1)
+cluster
+
+registerDoParallel(cluster)
+
+cvControl <- trainControl(method = "cv", number = 100)
+system.time(modFit_RF_cv_100 <- train(trnFinal,trnOutcome,method="rf", trControl = cvControl))
+
+stopCluster(cluster)
+
+modFit_RF_cv_100
+modFit_RF_cv_100$finalModel
+
+varImp(modFit_RF_cv_100)
+
+confusionMatrix(trnOutcome,predict(modFit_RF_cv_100,trnFinal))
+```
+
+As we can see, for the Random Forests Model with Cross Validation done over 100 Folds, **the estimate of the Out of Sample error is 0.15%**, or what is the same, **an Accuracy estimate of 99,85%**.
+
+The predictions of the required 20 Test set cases are:
+
+```{r, message = F, warning = F}
+predict(modFit_RF_cv_100,testFinal)
+```
+
+These 20 predictions are correct, according to the 20 points gotten when submitting them to the Project Submission part.
